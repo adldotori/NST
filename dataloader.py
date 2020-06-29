@@ -8,13 +8,14 @@ import torch.utils.data as data
 from torchvision import datasets, transforms
 from PIL import Image
 
-def image_load(path, size=512):
+def image_load(path, size=256):
     image = Image.open(path)
     image = transforms.Compose([
         transforms.CenterCrop(min(image.size)),
         transforms.Resize((size, size)),
-        transforms.ToTensor()
-    ])(image).cuda()
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    ])(image).cuda().unsqueeze(0)
     return image
 
 if __name__ == '__main__':

@@ -8,37 +8,6 @@ def gram_marix(x):
     G = torch.bmm(features, features.transpose(1,2))
     return G
 
-class VGG19(nn.Module):
-    def __init__(self, requires_grad=False):
-        super().__init__()
-        vgg_pretrained_features = models.vgg19(pretrained=True).features
-        self.slice1 = torch.nn.Sequential()
-        self.slice2 = torch.nn.Sequential()
-        self.slice3 = torch.nn.Sequential()
-        self.slice4 = torch.nn.Sequential()
-        self.slice5 = torch.nn.Sequential()
-        for x in range(2):
-            self.slice1.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(2, 7):
-            self.slice2.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(7, 12):
-            self.slice3.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(12, 21):
-            self.slice4.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(21, 30):
-            self.slice5.add_module(str(x), vgg_pretrained_features[x])
-        if not requires_grad:
-            for param in self.parameters():
-                param.requires_grad = False 
-
-    def forward(self, X):
-        out1 = self.slice1(X)
-        out2 = self.slice2(out1)
-        out3 = self.slice3(out2)
-        out4 = self.slice4(out3)
-        out5 = self.slice5(out4)
-        out = [out1, out2, out3, out4, out5]
-        return out
 
 class ContentLoss(nn.Module):
     def __init__(self):
@@ -63,28 +32,50 @@ class StyleLoss(nn.Module):
         return loss
 
 class Loss(nn.Module):
-    def __init__(self, content_params={4:1}, style_params={1:0.2,2:0.2,3:0.2,4:0.2,5:0.2}, alpha=10, beta=40):
+    def __init__(self, content_layers={6:1}, style_layers={0:0.75,5:0.5,10:0.2,19:0.2,28:0.2}, alpha=10000, beta=0):
         super().__init__()
-        self.vgg19 = VGG19()
+        self.vgg19 = models.vgg19(pretrained=True).cuda()
+        for name, child in self.vgg19.named_children():
+            if isinstance(child, nn.MaxPool2d):
+                self.vgg19[int(name)] = nn.AvgPool2d(kernel_size=2, stride=2)
+        # 0: 'conv1_1',
+        # 5: 'conv2_1',
+        # 10: 'conv3_1',
+        # 19: 'conv4_1',
+        # 21: 'conv4_2',  ## content layer
+        # 28: 'conv5_1'
+
         self.content_loss = ContentLoss()
         self.style_loss = StyleLoss()
         self.alpha = alpha
         self.beta = beta
-        self.content_params = content_params
-        self.style_params = style_params
+        self.content_layers = content_layers
+        self.style_layers = style_layers
+
+        for param in self.vgg19.parameters():
+            param.requires_grad = False
+
+    def get_features(self, x, layers):
+        features = {}
+        for cnt, layer in enumerate(self.vgg19.features):
+            x = layer(x)
+            if cnt in layers:
+                features[cnt] = x
+        return features
 
     def forward(self, x, content, style):
-        x = self.vgg19(x)
-        content = self.vgg19(content)
-        style = self.vgg19(style)
+        x_content = self.get_features(x, self.content_layers)
+        x_style = self.get_features(x, self.style_layers)
+        content = self.get_features(content, self.content_layers)
+        style = self.get_features(style, self.style_layers)
         
         content_loss = 0
-        for key, item in self.content_params.items():
-            content_loss += item * self.content_loss(x[key-1], content[key-1])
+        for key, item in self.content_layers.items():
+            content_loss += item * self.content_loss(x_content[key], content[key])
         
         style_loss = 0
-        for key, item in self.style_params.items():
-            style_loss += item * self.style_loss(x[key-1], style[key-1])
+        for key, item in self.style_layers.items():
+            style_loss += item * self.style_loss(x_style[key], style[key])
 
         total_loss = content_loss * self.alpha + style_loss * self.beta
 
