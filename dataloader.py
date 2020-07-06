@@ -15,7 +15,7 @@ def image_load(path, size=256):
         transforms.Resize((size, size)),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-    ])(image).cuda().unsqueeze(0)
+    ])(image).cuda().unsqueeze(0).detach()
     return image
 
 if __name__ == '__main__':

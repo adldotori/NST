@@ -4,10 +4,9 @@ from torchvision import models
 
 def gram_marix(x):
     N, C, H, W = x.size() 
-    features = x.view(N, C, H * W)
-    G = torch.bmm(features, features.transpose(1,2))
-    return G
-
+    features = x.view(N * C, H * W)
+    G = torch.mm(features, features.t())
+    return G.div_(N * C * H * W)
 
 class ContentLoss(nn.Module):
     def __init__(self):
@@ -28,21 +27,21 @@ class StyleLoss(nn.Module):
         y = gram_marix(y)
         loss = (x - y) ** 2
         loss = torch.mean(loss)
-        loss = loss / (4 * size ** 2)
         return loss
 
 class Loss(nn.Module):
-    def __init__(self, content_layers={6:1}, style_layers={0:0.75,5:0.5,10:0.2,19:0.2,28:0.2}, alpha=10000, beta=0):
+    def __init__(self, content_layers={13:1}, style_layers={1:0.2,6:0.2,11:0.2,20:0.2,29:0.2}, alpha=1, beta=100):
         super().__init__()
         self.vgg19 = models.vgg19(pretrained=True).cuda()
         for name, child in self.vgg19.named_children():
+            print(name, child)
             if isinstance(child, nn.MaxPool2d):
                 self.vgg19[int(name)] = nn.AvgPool2d(kernel_size=2, stride=2)
         # 0: 'conv1_1',
-        # 5: 'conv2_1',
+        # 5: 'conv2_1', 
+        # 6: 'conv2_2', - content layer
         # 10: 'conv3_1',
         # 19: 'conv4_1',
-        # 21: 'conv4_2',  ## content layer
         # 28: 'conv5_1'
 
         self.content_loss = ContentLoss()
@@ -64,6 +63,8 @@ class Loss(nn.Module):
         return features
 
     def forward(self, x, content, style):
+        content = content.detach()
+        style = style.detach()
         x_content = self.get_features(x, self.content_layers)
         x_style = self.get_features(x, self.style_layers)
         content = self.get_features(content, self.content_layers)
